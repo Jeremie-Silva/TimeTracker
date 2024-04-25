@@ -1,0 +1,6 @@
+static
+collected_static
+.venv
+db.*
+.idea/*
+.env
