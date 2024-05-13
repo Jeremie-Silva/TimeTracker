@@ -12,7 +12,7 @@ class Week(Model):
     @property
     def objective(self):
         total_duration = self.days.aggregate(total=Sum('objective'))['total']
-        return total_duration if total_duration is not None else "00:00:00"
+        return total_duration if total_duration is not None else timedelta()
 
     @property
     def score(self):
