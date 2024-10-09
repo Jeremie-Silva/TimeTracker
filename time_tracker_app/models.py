@@ -1,4 +1,4 @@
-from django.db.models import Model, CASCADE, ForeignKey, ManyToManyField, PositiveSmallIntegerField, CharField, DurationField, TimeField
+from django.db.models import Model, CASCADE, ForeignKey, ManyToManyField, PositiveSmallIntegerField, CharField, TimeField, IntegerField
 from django.contrib.auth.models import User
 from django.db.models import Sum
 from datetime import datetime, timedelta
@@ -11,15 +11,15 @@ class Week(Model):
 
     @property
     def objective(self):
-        total_duration = self.days.aggregate(total=Sum('objective'))['total']
-        return total_duration if total_duration is not None else timedelta()
+        total_seconds = self.days.aggregate(total=Sum('objective'))['total']
+        return timedelta(seconds=total_seconds) if total_seconds is not None else timedelta()
 
     @property
     def score(self):
-        total_duration = timedelta()
+        total_seconds = 0
         for day in self.days.all():
-            total_duration += day.result
-        return total_duration
+            total_seconds += day.result.total_seconds()
+        return timedelta(seconds=total_seconds)
 
     @property
     def result(self):
@@ -60,36 +60,29 @@ class Week(Model):
         return f"{percentage:.2f}%"
 
     @property
-    def dataforge(self):
-        return self.get_duration_by_label("Dataforge")
-
-    @property
-    def support(self):
-        return self.get_duration_by_label("Support")
-
-    @property
-    def autre(self):
-        return self.get_duration_by_label("Autre")
-
-    @property
     def lundi(self):
-        lundi_day = self.days.filter(name="Lundi").first()
-        return lundi_day.result if lundi_day else timedelta(0)
+        day = self.days.filter(name="Lundi").first()
+        return day.result if day else timedelta(0)
 
     @property
     def mardi(self):
-        lundi_day = self.days.filter(name="Mardi").first()
-        return lundi_day.result if lundi_day else timedelta(0)
+        day = self.days.filter(name="Mardi").first()
+        return day.result if day else timedelta(0)
 
     @property
     def mercredi(self):
-        lundi_day = self.days.filter(name="Mercredi").first()
-        return lundi_day.result if lundi_day else timedelta(0)
+        day = self.days.filter(name="Mercredi").first()
+        return day.result if day else timedelta(0)
 
     @property
     def jeudi(self):
-        lundi_day = self.days.filter(name="Jeudi").first()
-        return lundi_day.result if lundi_day else timedelta(0)
+        day = self.days.filter(name="Jeudi").first()
+        return day.result if day else timedelta(0)
+
+    @property
+    def vendredi(self):
+        day = self.days.filter(name="vendredi").first()
+        return day.result if day else timedelta(0)
 
     def __str__(self):
         return f"Semaine n° {self.week_number} : {self.year}"
@@ -102,45 +95,50 @@ class Day(Model):
             ('Lundi', 'Lundi'), ('Mardi', 'Mardi'), ('Mercredi', 'Mercredi'),
             ('Jeudi', 'Jeudi'), ('Vendredi', 'Vendredi'),
         ))
-    objective = DurationField(default="07:00:00")
+    objective = IntegerField(default=26280)
 
     @property
     def result(self):
-        total_duration = timedelta()
+        total_seconds = 0
         for task in self.tasks.all():
             if task.start_time and task.end_time:
                 duration = datetime.combine(
                     datetime.min, task.end_time
                 ) - datetime.combine(datetime.min, task.start_time)
-                total_duration += duration
-        return total_duration
+                total_seconds += duration.total_seconds()
+        return timedelta(seconds=total_seconds)
 
 
 class Label(Model):
     name = CharField(max_length=100)
 
     def calculate_global_task_time(self):
-        total_duration = timedelta()
+        total_seconds = 0
         for task in Task.objects.all():
             if task.start_time and task.end_time:
                 duration = datetime.combine(
                     datetime.min, task.end_time) - datetime.combine(datetime.min, task.start_time)
-                total_duration += duration
-        return total_duration
+                total_seconds += duration.total_seconds()
+        return timedelta(seconds=total_seconds)
 
     @property
-    def task_time_percentage(self):
-        label_task_duration = timedelta()
-        global_task_duration = self.calculate_global_task_time()
-        for task in self.tasks.all():
-            if task.start_time and task.end_time:
-                duration = datetime.combine(datetime.min, task.end_time) - datetime.combine(datetime.min,
-                                                                                            task.start_time)
-                label_task_duration += duration
-        if global_task_duration.total_seconds() == 0:
-            return "No global tasks"
-        percentage = (label_task_duration.total_seconds() / global_task_duration.total_seconds()) * 100
-        return f"{percentage:.2f}%"
+    def total_balance(self):
+        total_balance_seconds = 0
+        for week in Week.objects.all():
+            for day in week.days.all():
+                day_seconds = 0
+                for task in day.tasks.filter(label=self):
+                    if task.start_time and task.end_time:
+                        duration = datetime.combine(datetime.min, task.end_time) - datetime.combine(datetime.min, task.start_time)
+                        day_seconds += duration.total_seconds()
+                day_balance_seconds = day_seconds - day.objective
+                total_balance_seconds += day_balance_seconds
+        hours, remainder = divmod(abs(total_balance_seconds), 3600)
+        minutes = int(remainder // 60)
+
+        # Ajouter le signe "+" ou "-" en fonction de la balance
+        sign = "+" if total_balance_seconds >= 0 else "-"
+        return f"{sign}{int(hours)}h {minutes}min"
 
     def __str__(self):
         return self.name
@@ -151,4 +149,3 @@ class Task(Model):
     label = ForeignKey(to=Label, on_delete=CASCADE, related_name="tasks")
     start_time = TimeField()
     end_time = TimeField(null=True, blank=True)
-
